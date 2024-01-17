@@ -64,10 +64,13 @@ impl RaceList {
 	}
 
 	pub fn ways_to_win_multiplied(&self) -> u64 {
+		use rayon::prelude::*;
+
 		self
 			.races
-			.iter()
-			.fold(1, |acc, race| acc * race.ways_to_win())
+			.par_iter()
+			.fold(|| 1, |acc, race| acc * race.ways_to_win())
+			.reduce(|| 1, |acc, v| acc * v)
 	}
 }
 

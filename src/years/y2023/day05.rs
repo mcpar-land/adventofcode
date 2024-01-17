@@ -37,8 +37,8 @@ humidity-to-location map:
 56 93 4"#;
 
 struct Almanac {
-	seeds: Vec<u128>,
-	seed_pairs: Vec<std::ops::Range<u128>>,
+	seeds: Vec<i64>,
+	seed_ranges: Vec<(i64, i64)>,
 	maps: Vec<Map>,
 }
 
@@ -51,24 +51,22 @@ impl Almanac {
 			.strip_prefix("seeds: ")
 			.unwrap()
 			.split_ascii_whitespace()
-			.map(|d| -> Result<u128, anyhow::Error> {
+			.map(|d| -> Result<i64, anyhow::Error> {
 				Ok(
 					d.parse()
 						.map_err(|e| anyhow::anyhow!("Error parsing {} - {}", d, e))?,
 				)
 			})
-			.collect::<Result<Vec<u128>, anyhow::Error>>()?;
+			.collect::<Result<Vec<i64>, anyhow::Error>>()?;
 
 		if seeds.len() % 2 != 0 {
 			return Err(anyhow::anyhow!("Needs an even number of seeds"));
 		}
 
-		let mut seed_pairs: Vec<std::ops::Range<u128>> = seeds
-			.chunks(2)
-			.map(|chunk| (chunk[0]..(chunk[0] + chunk[1])))
-			.collect();
+		let mut seed_ranges: Vec<(i64, i64)> =
+			seeds.chunks(2).map(|chunk| (chunk[0], chunk[1])).collect();
 
-		seed_pairs.sort_by_key(|r| r.start);
+		seed_ranges.sort_by_key(|r| r.0);
 
 		let maps = sections
 			.map(|section| {
@@ -80,65 +78,73 @@ impl Almanac {
 		Ok(Almanac {
 			maps,
 			seeds,
-			seed_pairs,
+			seed_ranges,
 		})
 	}
 
-	pub fn run(&self, mut val: u128) -> u128 {
+	pub fn run(&self, mut val: i64) -> i64 {
 		for m in &self.maps {
 			val = m.run(val);
 		}
 		val
 	}
 
-	pub fn run_backwards(&self, mut val: u128) -> u128 {
+	pub fn run_backwards(&self, mut val: i64) -> i64 {
 		for m in self.maps.iter().rev() {
 			val = m.run_backwards(val);
 		}
 		val
 	}
 
-	pub fn has_seed(&self, seed: u128, use_ranges: bool) -> bool {
+	pub fn has_seed(&self, seed: i64, use_ranges: bool) -> bool {
 		if use_ranges {
-			for r in &self.seed_pairs {
-				if r.contains(&seed) {
-					return true;
+			self.seed_ranges.iter().any(|(start, len)| {
+				let (end, overflow) = start.overflowing_add(*len);
+				if overflow {
+					panic!("This range {} with {} items is too big", start, len);
 				}
-			}
-			false
+				(*start..=end).contains(&seed)
+			})
 		} else {
 			self.seeds.contains(&seed)
 		}
 	}
 
-	pub fn smallest_location(self, use_ranges: bool) -> u128 {
-		// use indicatif::ParallelProgressIterator;
+	pub fn smallest_location(self, use_ranges: bool) -> i64 {
+		use indicatif::ParallelProgressIterator;
+		use itertools::Itertools;
 		use rayon::prelude::*;
 		if use_ranges {
 			// running it backwards - the smallest number must be here somewhere.
-			let max_location = self
+			let (min_location, max_location) = self
 				.maps
 				.last()
 				.unwrap()
 				.map
 				.iter()
-				.min_by_key(|m| m.dest)
-				.unwrap()
-				.dest;
-
-			let res = (0..=max_location)
-				.into_par_iter()
-				// .progress_count(max_location as u64)
-				.filter(|location_id| {
-					let seed = self.run_backwards(*location_id);
-					self.has_seed(seed, use_ranges)
-				})
-				.min()
+				.sorted_by_key(|m| m.dest)
+				.map(|m| m.dest)
+				.next_tuple()
 				.unwrap();
 
-			res
+			if max_location == 0 {
+				panic!("why!")
+			}
+
+			let res = (min_location..=max_location)
+				.into_par_iter()
+				.progress_count(max_location as u64)
+				.filter(|location_id| {
+					let seed = self.run_backwards(*location_id);
+					let has_seed = self.has_seed(seed, use_ranges);
+					// println!("{} {}", seed, has_seed);
+					has_seed
+				})
+				.min();
+
+			res.unwrap()
 		} else {
-			let mut res = u128::MAX;
+			let mut res = i64::MAX;
 
 			for seed in &self.seeds {
 				// println!("=======");
@@ -158,28 +164,29 @@ struct Map {
 
 impl Map {
 	pub fn parse(lines: &str) -> Result<Map, anyhow::Error> {
+		use itertools::Itertools;
 		let mut lines = lines.lines();
 		let first_line = lines.next().unwrap();
 
 		let (from, to) = first_line.split_once("-to-").unwrap();
 		let to = to.strip_suffix(" map:").unwrap();
 
-		let mut map = lines
+		let map = lines
 			.map(MapRange::parse)
 			.collect::<Result<Vec<MapRange>, anyhow::Error>>()?;
-		map.sort_by_key(|v| v.start);
-
-		let mut map_backwards = map.clone();
-		map_backwards.sort_by_key(|v| v.dest);
 
 		Ok(Map {
 			from: from.to_string(),
 			to: to.to_string(),
-			map,
-			map_backwards,
+			map: map.clone().into_iter().sorted_by_key(|v| v.start).collect(),
+			map_backwards: map
+				.clone()
+				.into_iter()
+				.sorted_by_key(|v| v.dest)
+				.collect(),
 		})
 	}
-	pub fn run(&self, input: u128) -> u128 {
+	pub fn run(&self, input: i64) -> i64 {
 		for r in &self.map {
 			if input >= r.start {
 				if let Some(res) = r.run(input) {
@@ -189,7 +196,7 @@ impl Map {
 		}
 		input
 	}
-	pub fn run_backwards(&self, input: u128) -> u128 {
+	pub fn run_backwards(&self, input: i64) -> i64 {
 		for r in &self.map_backwards {
 			if input >= r.dest {
 				if let Some(res) = r.run_backwards(input) {
@@ -209,42 +216,34 @@ impl Map {
 
 #[derive(Debug, Clone)]
 struct MapRange {
-	pub dest: u128,
-	pub start: u128,
-	pub len: u128,
+	pub dest: i64,
+	pub start: i64,
+	pub len: i64,
 }
 
 impl MapRange {
 	pub fn parse(line: &str) -> Result<MapRange, anyhow::Error> {
 		let mut numerals = line.split_ascii_whitespace();
-		let dest: u128 = numerals.next().unwrap().parse()?;
-		let start: u128 = numerals.next().unwrap().parse()?;
-		let len: u128 = numerals.next().unwrap().parse()?;
+		let dest: i64 = numerals.next().unwrap().parse()?;
+		let start: i64 = numerals.next().unwrap().parse()?;
+		let len: i64 = numerals.next().unwrap().parse()?;
 
 		Ok(MapRange { dest, start, len })
 	}
 
-	fn run(&self, val: u128) -> Option<u128> {
+	fn run(&self, val: i64) -> Option<i64> {
 		if val < self.start || val >= (self.start + self.len) {
 			None
 		} else {
-			if self.start > self.dest {
-				Some(val - (self.start - self.dest))
-			} else {
-				Some(val + (self.dest - self.start))
-			}
+			Some(val - (self.start - self.dest))
 		}
 	}
 
-	fn run_backwards(&self, val: u128) -> Option<u128> {
+	fn run_backwards(&self, val: i64) -> Option<i64> {
 		if val < self.dest || val >= (self.dest + self.len) {
 			None
 		} else {
-			if self.dest > self.start {
-				Some(val - (self.dest - self.start))
-			} else {
-				Some(val + (self.start - self.dest))
-			}
+			Some(val - (self.dest - self.start))
 		}
 	}
 }

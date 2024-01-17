@@ -63,6 +63,7 @@ fn main() -> Result<(), anyhow::Error> {
 
 	let real_results = challenges
 		.into_par_iter()
+		.filter(|c| !c.skip)
 		.map(|challenge| {
 			challenge
 				.run_on_file()
