@@ -115,8 +115,7 @@ impl Almanac {
 		use itertools::Itertools;
 		use rayon::prelude::*;
 		if use_ranges {
-			// running it backwards - the smallest number must be here somewhere.
-			let (min_location, max_location) = self
+			let max_location = self
 				.maps
 				.last()
 				.unwrap()
@@ -124,25 +123,19 @@ impl Almanac {
 				.iter()
 				.sorted_by_key(|m| m.dest)
 				.map(|m| m.dest)
-				.next_tuple()
+				.skip(1)
+				.next()
 				.unwrap();
 
-			if max_location == 0 {
-				panic!("why!")
-			}
-
-			let res = (min_location..=max_location)
+			let res = (0..=max_location)
 				.into_par_iter()
-				.progress_count(max_location as u64)
-				.filter(|location_id| {
-					let seed = self.run_backwards(*location_id);
-					let has_seed = self.has_seed(seed, use_ranges);
-					// println!("{} {}", seed, has_seed);
-					has_seed
+				.find_first(|loc| {
+					let seed = self.run_backwards(*loc);
+					self.has_seed(seed, use_ranges)
 				})
-				.min();
+				.unwrap();
 
-			res.unwrap()
+			res
 		} else {
 			let mut res = i64::MAX;
 
