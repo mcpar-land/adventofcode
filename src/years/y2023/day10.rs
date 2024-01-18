@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::common::Pos;
 
@@ -48,18 +48,13 @@ impl Map {
 	}
 
 	fn get_loop(&self) -> HashSet<Pos> {
-		[
-			Direction::North,
-			Direction::South,
-			Direction::East,
-			Direction::West,
-		]
-		.into_iter()
-		.map(|dir| (dir, dir.offset()))
-		.find_map(|(dir, pos)| {
-			self._get_loop(HashSet::new(), (pos * -1) + self.start_pos, dir)
-		})
-		.unwrap()
+		Direction::all()
+			.into_iter()
+			.map(|dir| (dir, dir.offset()))
+			.find_map(|(dir, pos)| {
+				self._get_loop(HashSet::new(), (pos * -1) + self.start_pos, dir)
+			})
+			.unwrap()
 	}
 
 	fn _get_loop(
@@ -79,9 +74,66 @@ impl Map {
 		self._get_loop(vals, pos + offset, next.inverse())
 	}
 
-	// fn n_enclosed(&self) -> {
+	fn n_enclosed(&self) -> usize {
+		// first, we have to find a square that isn't part of the pipe or enclosed
+		// by the pipe, to use as our starting point. to do this, we combine a
+		// bunch of iterators to look at all the tiles on the very edge of the
+		// map.
+		let start = (0..self.size.x)
+			.map(|x| Pos::new(x, 0))
+			.chain((0..self.size.x).map(|x| Pos::new(x, self.size.y - 1)))
+			.chain((0..self.size.y).map(|y| Pos::new(0, y)))
+			.chain((0..self.size.y).map(|y| Pos::new(self.size.x - 1, y)))
+			.find_map(|pos| match self.get(pos).unwrap() {
+				Tile::Ground => Some(pos),
+				_ => None,
+			})
+			.unwrap();
 
-	// }
+		// diagonals
+		let diagonals = [
+			Pos::new(1, 1),
+			Pos::new(-1, 1),
+			Pos::new(1, -1),
+			Pos::new(-1, -1),
+		];
+		for start in diagonals {
+			if let Some(contigs) = self.contiguous(self.start_pos + start) {
+				let loop_vals = self.get_loop();
+				return (self.size.x * self.size.y) as usize
+					- loop_vals.len()
+					- contigs.len();
+			}
+		}
+
+		panic!("Couldn't find enclosure!");
+	}
+
+	fn contiguous(&self, start: Pos) -> Option<HashSet<Pos>> {
+		self._contiguous(HashSet::new(), start)
+	}
+
+	fn _contiguous(
+		&self,
+		mut visited: HashSet<Pos>,
+		pos: Pos,
+	) -> Option<HashSet<Pos>> {
+		for dir in Direction::all() {
+			let new_pos = pos + dir.offset();
+			if visited.contains(&new_pos) {
+				continue;
+			}
+			// if we reach a border, exit instantly, we are not contained
+			match self.get(new_pos)? {
+				Tile::Ground => {
+					visited.insert(pos);
+					visited = self._contiguous(visited, new_pos)?;
+				}
+				_ => {}
+			}
+		}
+		Some(visited)
+	}
 }
 
 #[derive(PartialEq, Eq, Clone)]
@@ -149,6 +201,14 @@ impl Direction {
 			Direction::East => Self::West,
 			Direction::West => Self::East,
 		}
+	}
+	fn all() -> [Self; 4] {
+		[
+			Direction::North,
+			Direction::South,
+			Direction::East,
+			Direction::West,
+		]
 	}
 }
 
