@@ -1,5 +1,5 @@
 use crate::common::{Challenge, ChallengeResult};
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use inventory::submit;
 
 mod day01;

@@ -5,6 +5,7 @@ use owo_colors::OwoColorize;
 use std::{
 	collections::HashSet,
 	fmt::Display,
+	ops::{Add, Mul},
 	time::{Duration, Instant},
 };
 
@@ -83,7 +84,8 @@ impl Challenge {
 		&self,
 	) -> Result<(Duration, Result<u128, anyhow::Error>), anyhow::Error> {
 		let path = format!("./inputs/{}/{:0>2}.txt", self.year, self.day);
-		let input = std::fs::read_to_string(path)?;
+		let input = std::fs::read_to_string(path.clone())
+			.map_err(|err| anyhow!("Error reading {}: {}", path, err))?;
 
 		let start = Instant::now();
 		let result = (self.f)(&input);
@@ -210,4 +212,44 @@ fn idt(level: usize) -> String {
 		s += "  ";
 	}
 	s
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Pos<T = i32> {
+	pub x: T,
+	pub y: T,
+}
+
+impl<T> Pos<T> {
+	pub fn new(x: T, y: T) -> Self {
+		Self { x, y }
+	}
+}
+
+impl<T: Add<Output = T>> Add for Pos<T> {
+	type Output = Pos<T>;
+
+	fn add(self, rhs: Self) -> Self::Output {
+		Pos {
+			x: self.x + rhs.x,
+			y: self.y + rhs.y,
+		}
+	}
+}
+
+impl<T: Mul<Output = T> + Copy> Mul<T> for Pos<T> {
+	type Output = Pos<T>;
+
+	fn mul(self, rhs: T) -> Self::Output {
+		Pos {
+			x: self.x * rhs,
+			y: self.y * rhs,
+		}
+	}
+}
+
+impl<T: Display> Display for Pos<T> {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "({}, {})", self.x, self.y)
+	}
 }

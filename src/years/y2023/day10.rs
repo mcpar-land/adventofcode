@@ -1,79 +1,201 @@
+use std::collections::{HashMap, HashSet};
+
+use crate::common::Pos;
+
 use super::*;
 
 struct Map {
 	tiles: Vec<Vec<Tile>>,
+	start_pos: Pos,
+	size: Pos,
 }
 
-// impl Map {
-// 	pub fn parse(input: &str) -> Self {
-// 		let tiles = input
-// 			.lines()
-// 			.map(|line| line.chars().map(Tile::parse).collect())
-// 			.collect();
-// 	}
-// }
+impl Map {
+	pub fn parse(input: &str) -> Self {
+		let mut start_pos = None;
+		let mut width = 0;
+		let mut height = 0;
+		let tiles: Vec<Vec<Tile>> = input
+			.lines()
+			.enumerate()
+			.map(|(y, line)| {
+				height = y + 1;
+				line
+					.chars()
+					.enumerate()
+					.map(|(x, c)| {
+						width = x + 1;
+						let tile = Tile::parse(c);
+						if tile == Tile::StartingPosition {
+							start_pos = Some(Pos::new(x as i32, y as i32 * -1))
+						}
+						tile
+					})
+					.collect()
+			})
+			.collect();
+		Map {
+			start_pos: start_pos.unwrap(),
+			tiles,
+			size: Pos::new(width as i32, height as i32),
+		}
+	}
+	fn get(&self, pos: Pos) -> Option<&Tile> {
+		self
+			.tiles
+			.get((pos.y * -1) as usize)
+			.and_then(|row| row.get(pos.x as usize))
+	}
 
+	fn get_loop(&self) -> HashSet<Pos> {
+		[
+			Direction::North,
+			Direction::South,
+			Direction::East,
+			Direction::West,
+		]
+		.into_iter()
+		.map(|dir| (dir, dir.offset()))
+		.find_map(|(dir, pos)| {
+			self._get_loop(HashSet::new(), (pos * -1) + self.start_pos, dir)
+		})
+		.unwrap()
+	}
+
+	fn _get_loop(
+		&self,
+		mut vals: HashSet<Pos>,
+		pos: Pos,
+		from: Direction,
+	) -> Option<HashSet<Pos>> {
+		let tile = self.get(pos).cloned()?;
+		if tile == Tile::StartingPosition {
+			vals.insert(pos);
+			return Some(vals);
+		}
+		let next = tile.travel(&from)?;
+		let offset = next.offset();
+		vals.insert(pos);
+		self._get_loop(vals, pos + offset, next.inverse())
+	}
+
+	// fn n_enclosed(&self) -> {
+
+	// }
+}
+
+#[derive(PartialEq, Eq, Clone)]
 enum Tile {
-	Vertical,
-	Horizontal,
-	NorthToEast,
-	NorthToWest,
-	SouthToWest,
-	SouthToEast,
+	Pipe(Direction, Direction),
 	Ground,
 	StartingPosition,
 }
 
 impl Tile {
 	fn parse(c: char) -> Self {
+		use Direction::*;
 		use Tile::*;
 		match c {
-			'|' => Vertical,
-			'-' => Horizontal,
-			'L' => NorthToEast,
-			'J' => NorthToWest,
-			'7' => SouthToWest,
-			'F' => SouthToEast,
+			'|' => Pipe(North, South),
+			'-' => Pipe(East, West),
+			'L' => Pipe(North, East),
+			'J' => Pipe(North, West),
+			'7' => Pipe(South, West),
+			'F' => Pipe(South, East),
 			'.' => Ground,
 			'S' => StartingPosition,
 			_ => panic!("unrecognized tile {}", c),
 		}
 	}
-	fn connections(&self) -> Connections {
-		let (north, south, east, west) = match self {
-			Tile::Vertical => (true, true, false, false),
-			Tile::Horizontal => (false, false, true, true),
-			Tile::NorthToEast => (true, false, true, false),
-			Tile::NorthToWest => (true, false, false, true),
-			Tile::SouthToEast => (false, true, true, false),
-			Tile::SouthToWest => (false, true, false, true),
-			Tile::Ground => (false, false, false, false),
-			Tile::StartingPosition => (true, true, true, true),
-		};
-		Connections {
-			north,
-			south,
-			east,
-			west,
+	fn travel(&self, from: &Direction) -> Option<Direction> {
+		match self {
+			Tile::Pipe(a, b) => {
+				if from == a {
+					return Some(*b);
+				}
+				if from == b {
+					return Some(*a);
+				}
+				// cannot approach this pipe, not connected.
+				None
+			}
+			Tile::Ground => None,
+			Tile::StartingPosition => None,
 		}
 	}
-	fn can_connect(&self, other: &Tile) -> bool {
-		self.connections().can_connect(&other.connections())
+}
+
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+enum Direction {
+	North,
+	South,
+	East,
+	West,
+}
+
+impl Direction {
+	fn offset(self) -> Pos {
+		match self {
+			Direction::North => Pos::new(0, 1),
+			Direction::South => Pos::new(0, -1),
+			Direction::East => Pos::new(1, 0),
+			Direction::West => Pos::new(-1, 0),
+		}
+	}
+	fn inverse(self) -> Self {
+		match self {
+			Direction::North => Self::South,
+			Direction::South => Self::North,
+			Direction::East => Self::West,
+			Direction::West => Self::East,
+		}
 	}
 }
 
-struct Connections {
-	north: bool,
-	south: bool,
-	east: bool,
-	west: bool,
+const TEST1: &'static str = "\
+.....
+.S-7.
+.|.|.
+.L-J.
+.....
+";
+
+const TEST2: &'static str = "\
+-L|F7
+7S-7|
+L|7||
+-L-J|
+L|-JF
+";
+
+const TEST3: &'static str = "\
+..F7.
+.FJ|.
+SJ.L7
+|F--J
+LJ...
+";
+
+const TEST4: &'static str = "\
+7-F7-
+.FJ|7
+SJLL7
+|F--J
+LJ.LJ
+";
+
+fn day10_1(input: &str) -> ChallengeResult {
+	let map = Map::parse(input);
+	let res = map.get_loop().len() / 2;
+
+	Ok(res as u128)
 }
 
-impl Connections {
-	fn can_connect(&self, other: &Self) -> bool {
-		(self.north && other.south)
-			|| (self.south && other.north)
-			|| (self.east && self.west)
-			|| (self.west && other.east)
-	}
-}
+submit!(Challenge {
+	year: 2023,
+	day: 10,
+	part: 1,
+	f: day10_1,
+	unit_tests: &[(TEST1, 4), (TEST2, 4), (TEST3, 8), (TEST4, 8)],
+	skip: false,
+});
