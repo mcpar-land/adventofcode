@@ -1,3 +1,7 @@
+use itertools::Itertools;
+
+use crate::common::Pos;
+
 use super::*;
 
 #[derive(Debug)]
@@ -58,13 +62,38 @@ impl GalaxyMap {
 			.join("\n");
 		println!("{}", res);
 	}
+	fn get(&self, pos: Pos) -> bool {
+		self.0[pos.y as usize][pos.x as usize]
+	}
+	fn size(&self) -> Pos {
+		Pos::new(self.0[0].len() as i32, self.0.len() as i32)
+	}
+	fn galaxy_positions(&self) -> Vec<Pos> {
+		let size = self.size();
+		let mut res = Vec::new();
+		for y in 0..size.y {
+			for x in 0..size.x {
+				if self.get(Pos::new(x, y)) {
+					res.push(Pos::new(x, y))
+				}
+			}
+		}
+		res
+	}
+	fn sum_distances(&self) -> i32 {
+		self
+			.galaxy_positions()
+			.into_iter()
+			.tuple_combinations()
+			.map(|(a, b)| (a.x - b.x).abs() + (a.y - b.y).abs())
+			.sum()
+	}
 }
 
 fn day11_1(input: &str) -> ChallengeResult {
 	let map = GalaxyMap::parse(input);
 
-	map.print();
-	todo!();
+	Ok(map.sum_distances() as u128)
 }
 
 const TEST1: &'static str = "\
@@ -84,6 +113,6 @@ submit!(Challenge {
 	day: 11,
 	part: 1,
 	f: day11_1,
-	unit_tests: &[(TEST1, 0)],
+	unit_tests: &[(TEST1, 374)],
 	skip: false
 });
