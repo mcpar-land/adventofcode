@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use owo_colors::OwoColorize;
+
 use crate::common::Pos;
 
 use super::*;
@@ -74,65 +76,108 @@ impl Map {
 		self._get_loop(vals, pos + offset, next.inverse())
 	}
 
-	fn n_enclosed(&self) -> usize {
-		// first, we have to find a square that isn't part of the pipe or enclosed
-		// by the pipe, to use as our starting point. to do this, we combine a
-		// bunch of iterators to look at all the tiles on the very edge of the
-		// map.
-		let start = (0..self.size.x)
-			.map(|x| Pos::new(x, 0))
-			.chain((0..self.size.x).map(|x| Pos::new(x, self.size.y - 1)))
-			.chain((0..self.size.y).map(|y| Pos::new(0, y)))
-			.chain((0..self.size.y).map(|y| Pos::new(self.size.x - 1, y)))
-			.find_map(|pos| match self.get(pos).unwrap() {
-				Tile::Ground => Some(pos),
-				_ => None,
-			})
-			.unwrap();
+	fn enclosed(&self) -> (HashSet<Pos>, HashSet<Pos>) {
+		// first we need the loop tiles to tell where the border is.
+		let loop_tiles = self.get_loop();
 
-		// diagonals
-		let diagonals = [
-			Pos::new(1, 1),
-			Pos::new(-1, 1),
-			Pos::new(1, -1),
-			Pos::new(-1, -1),
-		];
-		for start in diagonals {
-			if let Some(contigs) = self.contiguous(self.start_pos + start) {
-				let loop_vals = self.get_loop();
-				return (self.size.x * self.size.y) as usize
-					- loop_vals.len()
-					- contigs.len();
+		let mut contained_tiles = HashSet::<Pos>::new();
+
+		// now we set up a list of poisoned tiles that are contiguous
+		// with the edge of the map.
+		let mut poisoned_tiles = HashSet::<Pos>::new();
+
+		for y in 0..self.size.y {
+			for x in 0..self.size.x {
+				let (contig, poison) = self._contiguous(
+					&loop_tiles,
+					&poisoned_tiles,
+					HashSet::new(),
+					Pos::new(x, y * -1),
+				);
+				if poison {
+					poisoned_tiles.extend(&contig);
+				} else {
+					// we made it. now we filter by ground tiles.
+					contained_tiles.extend(&contig);
+				}
 			}
 		}
 
-		panic!("Couldn't find enclosure!");
+		return (
+			poisoned_tiles,
+			contained_tiles
+				.iter()
+				.filter(|pos| self.get(**pos).unwrap() == &Tile::Ground)
+				.cloned()
+				.collect(),
+		);
 	}
 
-	fn contiguous(&self, start: Pos) -> Option<HashSet<Pos>> {
-		self._contiguous(HashSet::new(), start)
-	}
-
+	/// returns all contiguous tiles + whether it touches the edge (or poison tiles)
 	fn _contiguous(
 		&self,
+		loop_tiles: &HashSet<Pos>,
+		poison_tiles: &HashSet<Pos>,
 		mut visited: HashSet<Pos>,
 		pos: Pos,
-	) -> Option<HashSet<Pos>> {
-		for dir in Direction::all() {
-			let new_pos = pos + dir.offset();
-			if visited.contains(&new_pos) {
-				continue;
-			}
-			// if we reach a border, exit instantly, we are not contained
-			match self.get(new_pos)? {
-				Tile::Ground => {
-					visited.insert(pos);
-					visited = self._contiguous(visited, new_pos)?;
+	) -> (HashSet<Pos>, bool) {
+		if visited.contains(&pos) {
+			return (visited, false);
+		}
+		if loop_tiles.contains(&pos) {
+			// we're on a loop tile, so we're done.
+			return (visited, false);
+		}
+		if poison_tiles.contains(&pos) {
+			// we're on a poison tile, so we are poisoned!
+			return (visited, true);
+		}
+		let tile = self.get(pos);
+		if tile.is_none() {
+			// we reached the border, so we are poisoned!
+			return (visited, true);
+		}
+		visited.insert(pos);
+		for x_offset in -1..=1 {
+			for y_offset in -1..=1 {
+				let new_pos = pos + Pos::new(x_offset, y_offset);
+				let (new_visited, is_poisoned) =
+					self._contiguous(loop_tiles, poison_tiles, visited, new_pos);
+				if is_poisoned {
+					return (new_visited, true);
 				}
-				_ => {}
+				visited = new_visited;
 			}
 		}
-		Some(visited)
+		return (visited, false);
+	}
+
+	fn pretty_print(&self) {
+		let loop_tiles = self.get_loop();
+		let (poisoned_tiles, enclosed_tiles) = self.enclosed();
+		let mut displ = String::new();
+		for y in 0..self.size.y {
+			let mut row = String::new();
+			for x in 0..self.size.x {
+				let pos = Pos::new(x, y * -1);
+				if poisoned_tiles.contains(&pos) {
+					row.push_str(&"P".red().to_string());
+					continue;
+				}
+				if loop_tiles.contains(&pos) {
+					row.push_str(&"#".purple().to_string());
+					continue;
+				}
+				if enclosed_tiles.contains(&pos) {
+					row.push_str(&"I".green().to_string());
+					continue;
+				}
+				row.push('.');
+			}
+			displ.push_str(&row);
+			displ.push('\n');
+		}
+		println!("{}\n", displ);
 	}
 }
 
@@ -246,6 +291,7 @@ LJ.LJ
 
 fn day10_1(input: &str) -> ChallengeResult {
 	let map = Map::parse(input);
+	map.pretty_print();
 	let res = map.get_loop().len() / 2;
 
 	Ok(res as u128)
@@ -257,5 +303,57 @@ submit!(Challenge {
 	part: 1,
 	f: day10_1,
 	unit_tests: &[(TEST1, 4), (TEST2, 4), (TEST3, 8), (TEST4, 8)],
+	skip: false,
+});
+
+const TEST2_1: &'static str = "\
+...........
+.S-------7.
+.|F-----7|.
+.||.....||.
+.||.....||.
+.|L-7.F-J|.
+.|..|.|..|.
+.L--J.L--J.
+...........";
+
+const TEST2_2: &'static str = "\
+.F----7F7F7F7F-7....
+.|F--7||||||||FJ....
+.||.FJ||||||||L7....
+FJL7L7LJLJ||LJ.L-7..
+L--J.L7...LJS7F-7L7.
+....F-J..F7FJ|L7L7L7
+....L7.F7||L7|.L7L7|
+.....|FJLJ|FJ|F7|.LJ
+....FJL-7.||.||||...
+....L---J.LJ.LJLJ...";
+
+const TEST2_3: &'static str = "\
+FF7FSF7F7F7F7F7F---7
+L|LJ||||||||||||F--J
+FL-7LJLJ||||||LJL-77
+F--JF--7||LJLJ7F7FJ-
+L---JF-JLJ.||-FJLJJ7
+|F|F-JF---7F7-L7L|7|
+|FFJF7L7F-JF7|JL---7
+7-L-JL7||F7|L7F-7F7|
+L.L7LFJ|||||FJL7||LJ
+L7JLJL-JLJLJL--JLJ.L";
+
+fn day10_2(input: &str) -> ChallengeResult {
+	let map = Map::parse(input);
+	map.pretty_print();
+	let res = map.enclosed().1.len();
+
+	Ok(res as u128)
+}
+
+submit!(Challenge {
+	year: 2023,
+	day: 10,
+	part: 2,
+	f: day10_2,
+	unit_tests: &[(TEST2_1, 4), (TEST2_2, 8), (TEST2_3, 10)],
 	skip: false,
 });

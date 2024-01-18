@@ -4,7 +4,8 @@ use core::cmp::Ordering;
 use owo_colors::OwoColorize;
 use std::{
 	collections::HashSet,
-	fmt::Display,
+	fmt::{Debug, Display},
+	hash::Hash,
 	ops::{Add, Mul},
 	time::{Duration, Instant},
 };
@@ -214,19 +215,19 @@ fn idt(level: usize) -> String {
 	s
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Pos<T = i32> {
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Pos<T: PartialEq + Eq + Hash = i32> {
 	pub x: T,
 	pub y: T,
 }
 
-impl<T> Pos<T> {
+impl<T: PartialEq + Eq + Hash> Pos<T> {
 	pub fn new(x: T, y: T) -> Self {
 		Self { x, y }
 	}
 }
 
-impl<T: Add<Output = T>> Add for Pos<T> {
+impl<T: PartialEq + Eq + Hash + Add<Output = T>> Add for Pos<T> {
 	type Output = Pos<T>;
 
 	fn add(self, rhs: Self) -> Self::Output {
@@ -237,7 +238,7 @@ impl<T: Add<Output = T>> Add for Pos<T> {
 	}
 }
 
-impl<T: Mul<Output = T> + Copy> Mul<T> for Pos<T> {
+impl<T: PartialEq + Eq + Hash + Mul<Output = T> + Copy> Mul<T> for Pos<T> {
 	type Output = Pos<T>;
 
 	fn mul(self, rhs: T) -> Self::Output {
@@ -248,8 +249,14 @@ impl<T: Mul<Output = T> + Copy> Mul<T> for Pos<T> {
 	}
 }
 
-impl<T: Display> Display for Pos<T> {
+impl<T: PartialEq + Eq + Hash + Display> Display for Pos<T> {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "({}, {})", self.x, self.y)
+	}
+}
+
+impl<T: PartialEq + Eq + Hash + Debug> Debug for Pos<T> {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "({:?}, {:?})", self.x, self.y)
 	}
 }
