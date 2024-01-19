@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use itertools::Itertools;
 
 use crate::common::Pos;
@@ -5,11 +7,11 @@ use crate::common::Pos;
 use super::*;
 
 #[derive(Debug)]
-struct GalaxyMap(Vec<Vec<bool>>);
+struct GalaxyMap(HashSet<Pos<u128>>);
 
 impl GalaxyMap {
-	pub fn parse(input: &str) -> Self {
-		let mut values: Vec<Vec<bool>> = input
+	pub fn parse(input: &str, expansion: u128) -> Self {
+		let values: Vec<Vec<bool>> = input
 			.lines()
 			.map(|line| {
 				line
@@ -22,76 +24,62 @@ impl GalaxyMap {
 					.collect()
 			})
 			.collect();
-		let size = values.len();
+
+		let mut galaxies = Vec::new();
+		for y in 0..values.len() {
+			for x in 0..values[0].len() {
+				if values[y][x] {
+					galaxies.push(Pos::new(x as u128, y as u128));
+				}
+			}
+		}
+
 		let empty_rows: Vec<usize> = values
 			.iter()
 			.enumerate()
 			.filter(|(_, row)| row.iter().all(|is_galaxy| !is_galaxy))
 			.map(|(i, _)| i)
 			.collect();
+
 		let empty_cols: Vec<usize> = (0..values[0].len())
 			.into_iter()
 			.filter(|i| values.iter().map(|row| row[*i]).all(|is_galaxy| !is_galaxy))
+			.unique()
 			.collect();
-		let mut offset = 0;
-		for i_row in empty_rows {
-			values.insert(i_row + offset, vec![false; size]);
-			offset += 1;
-		}
-		let mut offset = 0;
-		for i_col in empty_cols {
-			for row in values.iter_mut() {
-				row.insert(i_col + offset, false);
+
+		//TODO
+		// almost entirely convinced this is wher the problem is.
+		// why does this work when expansion is 1, but fails when it's other values?
+
+		for (i, y) in empty_rows.into_iter().enumerate() {
+			let offset = expansion * i as u128;
+			for galaxy in galaxies.iter_mut().filter(|g| g.y > y as u128 + offset) {
+				galaxy.y += expansion;
 			}
-			offset += 1;
 		}
 
-		Self(values)
-	}
-	fn print(&self) {
-		let res = self
-			.0
-			.iter()
-			.map(|row| {
-				row
-					.iter()
-					.map(|is_galaxy| if *is_galaxy { '#' } else { '.' })
-					.collect::<String>()
-			})
-			.collect::<Vec<String>>()
-			.join("\n");
-		println!("{}", res);
-	}
-	fn get(&self, pos: Pos) -> bool {
-		self.0[pos.y as usize][pos.x as usize]
-	}
-	fn size(&self) -> Pos {
-		Pos::new(self.0[0].len() as i32, self.0.len() as i32)
-	}
-	fn galaxy_positions(&self) -> Vec<Pos> {
-		let size = self.size();
-		let mut res = Vec::new();
-		for y in 0..size.y {
-			for x in 0..size.x {
-				if self.get(Pos::new(x, y)) {
-					res.push(Pos::new(x, y))
-				}
+		for (i, x) in empty_cols.into_iter().enumerate() {
+			let offset = expansion * i as u128;
+			for galaxy in galaxies.iter_mut().filter(|g| g.x > x as u128 + offset) {
+				galaxy.x += expansion;
 			}
 		}
-		res
+
+		Self(galaxies.into_iter().collect())
 	}
-	fn sum_distances(&self) -> i32 {
+
+	fn sum_distances(&self) -> u128 {
 		self
-			.galaxy_positions()
-			.into_iter()
+			.0
+			.iter()
 			.tuple_combinations()
-			.map(|(a, b)| (a.x - b.x).abs() + (a.y - b.y).abs())
+			.map(|(a, b)| a.x.abs_diff(b.x) + a.y.abs_diff(b.y))
 			.sum()
 	}
 }
 
 fn day11_1(input: &str) -> ChallengeResult {
-	let map = GalaxyMap::parse(input);
+	let map = GalaxyMap::parse(input, 1);
 
 	Ok(map.sum_distances() as u128)
 }
@@ -115,4 +103,19 @@ submit!(Challenge {
 	f: day11_1,
 	unit_tests: &[(TEST1, 374)],
 	skip: false
+});
+
+fn day11_2(input: &str) -> ChallengeResult {
+	let map = GalaxyMap::parse(input, 100);
+
+	Ok(map.sum_distances() as u128)
+}
+
+submit!(Challenge {
+	year: 2023,
+	day: 11,
+	part: 2,
+	f: day11_2,
+	unit_tests: &[(TEST1, 8410)],
+	skip: true
 });
